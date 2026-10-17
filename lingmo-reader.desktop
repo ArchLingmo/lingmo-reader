@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Documents
+Name[pt_BR]=Documentos
+GenericName=Document Viewer
+GenericName[pt_BR]=Leitor de documentos
+Comment=Read PDF documents, search, highlight and take notes
+Comment[pt_BR]=Leia documentos PDF, pesquise, destaque trechos e faça anotações
+Exec=lingmo-reader %f
+Icon=application-pdf
+Terminal=false
+Categories=Office;Viewer;Qt;
+MimeType=application/pdf;application/x-pdf;
+Keywords=pdf;document;reader;viewer;book;
+Keywords[pt_BR]=pdf;documento;leitor;visualizador;livro;ler;
+StartupNotify=true
+StartupWMClass=lingmo-reader

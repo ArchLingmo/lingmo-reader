@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/">
+        <file>qml/Main.qml</file>
+        <file>qml/DocumentView.qml</file>
+        <file>qml/PageItem.qml</file>
+        <file>qml/PageImage.qml</file>
+        <file>qml/SidePanel.qml</file>
+        <file>qml/WelcomePage.qml</file>
+        <file>qml/PasswordDialog.qml</file>
+        <file>qml/LinkDialog.qml</file>
+        <file>qml/NoteDialog.qml</file>
+    </qresource>
+</RCC>
