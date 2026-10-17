@@ -34,6 +34,7 @@ static void applyIconTheme()
     const bool dark = theme.value(QStringLiteral("DarkMode"), false).toBool();
     const QStringList candidates = {
         theme.value(dark ? QStringLiteral("DarkIconTheme") : QStringLiteral("IconTheme")).toString(),
+        dark ? QStringLiteral("Lingmo-dark") : QStringLiteral("Lingmo"),
         dark ? QStringLiteral("Crule-dark") : QStringLiteral("Crule"),
         QStringLiteral("breeze"),
     };
@@ -75,7 +76,7 @@ int main(int argc, char *argv[])
     parser.process(app);
 
     applyIconTheme();
-    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("application-pdf")));
+    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("lingmo-reader"), QIcon::fromTheme(QStringLiteral("application-pdf"))));
 
     QString initialFile;
     if (!parser.positionalArguments().isEmpty()) {

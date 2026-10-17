@@ -250,137 +250,6 @@ LingmoUI.Window {
         reader.refreshAssistant()
     }
 
-    // ------------------------------------------------------------ toolbar
-    headerItem: Item {
-        id: toolbar
-
-        // No document: just "Open"
-        LingmoUI.IconButton {
-            visible: !rootWindow.hasDocument
-            anchors.right: parent.right
-            anchors.rightMargin: LingmoUI.Units.largeSpacing
-            anchors.verticalCenter: parent.verticalCenter
-            iconName: "document-open"
-            tipText: qsTr("Open document (Ctrl+O)")
-            onClicked: openDialog.open()
-        }
-
-        RowLayout {
-            visible: rootWindow.hasDocument
-            anchors.fill: parent
-            // headerItem starts after the window buttons; with the sidebar open
-            // the toolbar starts where the document area does
-            anchors.leftMargin: rootWindow.sidebarShown
-                                ? Math.max(0, sidePanel.width + 1 - toolbar.x - toolbar.parent.x) + LingmoUI.Units.largeSpacing
-                                : LingmoUI.Units.smallSpacing
-            anchors.rightMargin: LingmoUI.Units.largeSpacing
-            spacing: LingmoUI.Units.smallSpacing
-
-            LingmoUI.IconButton {
-                iconName: "sidebar-show-symbolic"
-                tipText: settings.sidebarVisible ? qsTr("Hide sidebar (F9)") : qsTr("Show sidebar (F9)")
-                checkable: true
-                checked: settings.sidebarVisible
-                onClicked: settings.sidebarVisible = !settings.sidebarVisible
-            }
-
-            LingmoUI.PageHeader {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 60
-                large: false
-                title: rootWindow.documentTitle
-            }
-
-            // page navigation
-            LingmoUI.IconButton {
-                iconName: "go-previous"
-                tipText: qsTr("Previous page")
-                enabled: documentView.currentPage > 0
-                onClicked: documentView.previousPage()
-            }
-            TextField {
-                id: pageField
-                Layout.preferredWidth: 46
-                Layout.preferredHeight: LingmoUI.Units.smallControlHeight
-                horizontalAlignment: Text.AlignHCenter
-                text: documentView.currentPage >= 0 ? String(documentView.currentPage + 1) : ""
-                validator: IntValidator { bottom: 1; top: Math.max(1, pdf.pageCount) }
-                selectByMouse: true
-                onAccepted: { documentView.goToPage(parseInt(text) - 1); documentView.forceActiveFocus() }
-                onActiveFocusChanged: if (activeFocus) selectAll()
-                Accessible.name: qsTr("Page number")
-            }
-            Label {
-                text: qsTr("of %1").arg(pdf.pageCount)
-                color: LingmoUI.Theme.secondaryTextColor
-                font.pointSize: LingmoUI.Units.fontBody
-            }
-            LingmoUI.IconButton {
-                iconName: "go-next"
-                tipText: qsTr("Next page")
-                enabled: documentView.currentPage < pdf.pageCount - 1
-                onClicked: documentView.nextPage()
-            }
-
-            Item { Layout.preferredWidth: LingmoUI.Units.smallSpacing }
-
-            // zoom
-            LingmoUI.IconButton {
-                iconName: "zoom-out-symbolic"
-                tipText: qsTr("Zoom out (Ctrl+−)")
-                onClicked: documentView.zoomOut()
-            }
-            LingmoUI.ActionButton {
-                id: zoomButton
-                text: documentView.zoomMode === 1 ? qsTr("Fit width")
-                    : documentView.zoomMode === 2 ? qsTr("Fit page")
-                    : documentView.zoomPercent + "%"
-                tipText: qsTr("Zoom")
-                Layout.preferredWidth: Math.max(implicitWidth, 72)
-                onClicked: zoomMenu.popup(zoomButton, 0, zoomButton.height + 4)
-            }
-            LingmoUI.IconButton {
-                iconName: "zoom-in-symbolic"
-                tipText: qsTr("Zoom in (Ctrl++)")
-                onClicked: documentView.zoomIn()
-            }
-
-            Item { Layout.preferredWidth: LingmoUI.Units.smallSpacing }
-
-            LingmoUI.SegmentedControl {
-                id: layoutSwitch
-                model: [
-                    { iconName: "view-pages-continuous" },
-                    { iconName: "view-pages-single" },
-                    { iconName: "view-pages-facing" }
-                ]
-                currentIndex: settings.layoutMode
-                onActivated: (index) => {
-                    settings.layoutMode = index
-                    documentView.layoutMode = index
-                }
-                ToolTip.visible: layoutHover.hovered
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("Continuous · Single page · Two pages")
-                HoverHandler { id: layoutHover }
-            }
-
-            LingmoUI.IconButton {
-                iconName: "edit-find"
-                tipText: qsTr("Search (Ctrl+F)")
-                checkable: true
-                checked: rootWindow.searching
-                onClicked: rootWindow.searching ? rootWindow.closeSearch() : rootWindow.openSearch()
-            }
-            LingmoUI.IconButton {
-                id: menuButton
-                iconName: "open-menu-symbolic"
-                tipText: qsTr("Menu")
-                onClicked: mainMenu.popup(menuButton, menuButton.width - mainMenu.width, menuButton.height + 4)
-            }
-        }
-    }
-
     // ------------------------------------------------------------ layout
 
     RowLayout {
@@ -414,18 +283,145 @@ LingmoUI.Window {
             Layout.fillHeight: true
             spacing: 0
 
-            // The toolbar lives in the window header (headerItem) so its
-            // buttons get clicks; keep its strip free here
+            // ------------------------------------------------ toolbar
+            // In the window's header strip: the strip only takes the presses
+            // the toolbar leaves (window drag, double click)
             Item {
+                id: toolbar
                 visible: rootWindow.hasDocument
                 Layout.fillWidth: true
                 Layout.preferredHeight: rootWindow.header.height
+
+                RowLayout {
+                    anchors.fill: parent
+                    // Without the sidebar the toolbar shares the strip with the window buttons
+                    anchors.leftMargin: rootWindow.sidebarShown ? LingmoUI.Units.largeSpacing
+                                                                : LingmoUI.Units.windowControlsInset
+                    anchors.rightMargin: LingmoUI.Units.largeSpacing
+                    spacing: LingmoUI.Units.smallSpacing
+
+                    LingmoUI.IconButton {
+                        iconName: "sidebar-show-symbolic"
+                        tipText: settings.sidebarVisible ? qsTr("Hide sidebar (F9)") : qsTr("Show sidebar (F9)")
+                        checkable: true
+                        checked: settings.sidebarVisible
+                        onClicked: settings.sidebarVisible = !settings.sidebarVisible
+                    }
+
+                    LingmoUI.PageHeader {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 60
+                        large: false
+                        title: rootWindow.documentTitle
+                    }
+
+                    // page navigation
+                    LingmoUI.IconButton {
+                        iconName: "go-previous"
+                        tipText: qsTr("Previous page")
+                        enabled: documentView.currentPage > 0
+                        onClicked: documentView.previousPage()
+                    }
+                    TextField {
+                        id: pageField
+                        Layout.preferredWidth: 46
+                        Layout.preferredHeight: LingmoUI.Units.smallControlHeight
+                        horizontalAlignment: Text.AlignHCenter
+                        text: documentView.currentPage >= 0 ? String(documentView.currentPage + 1) : ""
+                        validator: IntValidator { bottom: 1; top: Math.max(1, pdf.pageCount) }
+                        selectByMouse: true
+                        onAccepted: { documentView.goToPage(parseInt(text) - 1); documentView.forceActiveFocus() }
+                        onActiveFocusChanged: if (activeFocus) selectAll()
+                        Accessible.name: qsTr("Page number")
+                    }
+                    Label {
+                        text: qsTr("of %1").arg(pdf.pageCount)
+                        color: LingmoUI.Theme.secondaryTextColor
+                        font.pointSize: LingmoUI.Units.fontBody
+                    }
+                    LingmoUI.IconButton {
+                        iconName: "go-next"
+                        tipText: qsTr("Next page")
+                        enabled: documentView.currentPage < pdf.pageCount - 1
+                        onClicked: documentView.nextPage()
+                    }
+
+                    Item { Layout.preferredWidth: LingmoUI.Units.smallSpacing }
+
+                    // zoom
+                    LingmoUI.IconButton {
+                        iconName: "zoom-out-symbolic"
+                        tipText: qsTr("Zoom out (Ctrl+−)")
+                        onClicked: documentView.zoomOut()
+                    }
+                    LingmoUI.ActionButton {
+                        id: zoomButton
+                        text: documentView.zoomMode === 1 ? qsTr("Fit width")
+                            : documentView.zoomMode === 2 ? qsTr("Fit page")
+                            : documentView.zoomPercent + "%"
+                        tipText: qsTr("Zoom")
+                        Layout.preferredWidth: Math.max(implicitWidth, 72)
+                        onClicked: zoomMenu.popup(zoomButton, 0, zoomButton.height + 4)
+                    }
+                    LingmoUI.IconButton {
+                        iconName: "zoom-in-symbolic"
+                        tipText: qsTr("Zoom in (Ctrl++)")
+                        onClicked: documentView.zoomIn()
+                    }
+
+                    Item { Layout.preferredWidth: LingmoUI.Units.smallSpacing }
+
+                    LingmoUI.SegmentedControl {
+                        id: layoutSwitch
+                        model: [
+                            { iconName: "view-pages-continuous" },
+                            { iconName: "view-pages-single" },
+                            { iconName: "view-pages-facing" }
+                        ]
+                        currentIndex: settings.layoutMode
+                        onActivated: (index) => {
+                            settings.layoutMode = index
+                            documentView.layoutMode = index
+                        }
+                        ToolTip.visible: layoutHover.hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Continuous · Single page · Two pages")
+                        HoverHandler { id: layoutHover }
+                    }
+
+                    LingmoUI.IconButton {
+                        iconName: "edit-find"
+                        tipText: qsTr("Search (Ctrl+F)")
+                        checkable: true
+                        checked: rootWindow.searching
+                        onClicked: rootWindow.searching ? rootWindow.closeSearch() : rootWindow.openSearch()
+                    }
+                    LingmoUI.IconButton {
+                        id: menuButton
+                        iconName: "open-menu-symbolic"
+                        tipText: qsTr("Menu")
+                        onClicked: mainMenu.popup(menuButton, menuButton.width - mainMenu.width, menuButton.height + 4)
+                    }
+                }
             }
 
             // ---------------------------------------------------- content
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+
+                // No document: just "Open", in the header strip
+                LingmoUI.IconButton {
+                    z: 1
+                    visible: !rootWindow.hasDocument
+                    anchors.right: parent.right
+                    anchors.rightMargin: LingmoUI.Units.largeSpacing
+                    anchors.top: parent.top
+                    anchors.topMargin: (rootWindow.header.height - height) / 2
+                    iconName: "document-open"
+                    tipText: qsTr("Open document (Ctrl+O)")
+                    onClicked: openDialog.open()
+                }
 
                 StackLayout {
                     anchors.fill: parent
