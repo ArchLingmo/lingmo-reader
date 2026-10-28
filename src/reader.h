@@ -43,6 +43,8 @@ public:
     Q_INVOKABLE void copyText(const QString &text) const;
     Q_INVOKABLE bool askAssistant(const QString &text) const;
     Q_INVOKABLE void refreshAssistant();
+    // Voice Studio (voices and the read-aloud engines), at a section ("voices", "install")
+    Q_INVOKABLE bool openVoiceStudio(const QString &section = QString()) const;
 
 Q_SIGNALS:
     void assistantAvailableChanged();

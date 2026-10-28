@@ -217,6 +217,17 @@ Flickable {
         }
     }
 
+    // A rectangle in page points -> view coordinates (for popups next to a word)
+    function pageRectToView(page, rect) {
+        const r = rowOfPage(page)
+        let left = rowLeft(r)
+        const pages = rowPages[r] || []
+        if (pages.length > 1 && page === pages[1])
+            left += sizes[pages[0]].width * renderScale + gap
+        return Qt.rect(left + rect.x * renderScale - contentX, rowTop(r) + rect.y * renderScale - contentY,
+                       rect.width * renderScale, rect.height * renderScale)
+    }
+
     function nextPage() {
         const step = layoutMode === 2 ? 2 : 1
         const base = layoutMode === 2 ? currentPage - currentPage % 2 : currentPage

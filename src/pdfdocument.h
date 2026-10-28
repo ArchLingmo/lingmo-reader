@@ -16,6 +16,8 @@
 
 #include <memory>
 
+#include "bookconverter.h"
+
 namespace Poppler {
 class Document;
 }
@@ -68,9 +70,20 @@ class PdfDocument : public QObject
     Q_PROPERTY(qreal maxPageHeight READ maxPageHeight NOTIFY statusChanged)
     // Flattened table of contents: [{ title, depth, page, top, hasChildren }]
     Q_PROPERTY(QVariantList outline READ outline NOTIFY statusChanged)
+    // "pdf", or the format typeset into a PDF: "epub", "txt", "docx", "odt"
+    Q_PROPERTY(QString sourceFormat READ sourceFormat NOTIFY statusChanged)
+    Q_PROPERTY(QString author READ author NOTIFY statusChanged)
+    Q_PROPERTY(QString language READ language NOTIFY statusChanged)
+    // the cover image of an EPUB, if any (for audiobook export)
+    Q_PROPERTY(QString coverPath READ coverPath NOTIFY statusChanged)
+    // the PDF poppler actually reads (the typeset one for EPUB/TXT/DOCX/ODT)
+    Q_PROPERTY(QString renderedPath READ renderedPath NOTIFY statusChanged)
+    // EPUB/TXT/DOCX/ODT being typeset in the background (async conversion only)
+    Q_PROPERTY(bool converting READ converting NOTIFY statusChanged)
+    Q_PROPERTY(qreal progress READ progress NOTIFY progressChanged)
 
 public:
-    enum Status { Null, Ready, Locked, Error };
+    enum Status { Null, Ready, Locked, Error, Converting };
     Q_ENUM(Status)
 
     explicit PdfDocument(QObject *parent = nullptr);
@@ -87,8 +100,18 @@ public:
     qreal maxPageWidth() const;
     qreal maxPageHeight() const;
     QVariantList outline() const { return m_outline; }
+    QString sourceFormat() const { return m_sourceFormat; }
+    QString author() const { return m_author; }
+    QString language() const { return m_language; }
+    QString coverPath() const { return m_coverPath; }
+    QString renderedPath() const { return m_renderedPath; }
+    bool converting() const { return m_status == Converting; }
+    qreal progress() const { return m_progress; }
+    // The app converts in a worker thread (load() returns Converting, then
+    // statusChanged); the tests keep the synchronous load
+    void setAsyncConversion(bool on) { m_async = on; }
 
-    // Ready, Locked (needs a password) or Error
+    // Ready, Locked (needs a password), Error, or Converting (async conversion)
     Q_INVOKABLE int load(const QString &path, const QString &password = QString());
     // true when the password opened the document
     Q_INVOKABLE bool unlock(const QString &password);
@@ -116,12 +139,14 @@ public:
 
 Q_SIGNALS:
     void statusChanged();
+    void progressChanged();
 
 private:
     void finishLoad(std::unique_ptr<Poppler::Document> doc);
     void buildOutline();
     void setStatus(Status status, const QString &error = QString());
     void setSnapshot(std::shared_ptr<PdfSnapshot> snapshot);
+    void finishConversion(const BookConverter::Result &book);
 
     mutable QMutex m_snapshotLock;
 
@@ -132,5 +157,13 @@ private:
     QString m_title;
     QString m_error;
     QVariantList m_outline;
+    QString m_sourceFormat;
+    QString m_author;
+    QString m_language;
+    QString m_coverPath;
+    QString m_renderedPath;
+    QVariantList m_convertedOutline;
     int m_generation = 0;
+    qreal m_progress = 0;
+    bool m_async = false;
 };

@@ -37,6 +37,7 @@ LingmoUI.Window {
     property string password: ""
     property int pendingPage: -1
     property bool passwordWanted: false
+    property bool listenStarted: false
     property string errorText: ""
     property string infoText: ""
     readonly property var annotationStore: annotations
@@ -81,16 +82,20 @@ LingmoUI.Window {
     // ------------------------------------------------------------ actions
 
     function openFile(path, page) {
+        const asked = String(path)
         path = reader.toLocalPath(path)
-        if (path.length === 0)
+        if (path.length === 0) {
+            if (asked.length > 0)
+                errorText = qsTr("“%1” is not a file on this computer.").arg(asked)
             return
+        }
         if (!reader.exists(path)) {
             errorText = qsTr("“%1” could not be found.").arg(reader.fileName(path))
             recentFiles.remove(path)
             return
         }
         if (!reader.isSupported(path)) {
-            errorText = qsTr("“%1” is not a PDF document.").arg(reader.fileName(path))
+            errorText = qsTr("“%1” is not a document the Reader opens (PDF, EPUB, text, DOCX, ODT).").arg(reader.fileName(path))
             return
         }
         saveProgress()
@@ -107,6 +112,14 @@ LingmoUI.Window {
         documentView.notePlacement = false
         filePath = path
         pdf.load(path)
+        loadFinished()
+    }
+
+    // after pdf.load(): at once for PDFs, after the background conversion for books
+    function loadFinished() {
+        const path = filePath
+        if (path.length === 0 || pdf.converting)
+            return
         if (pdf.ready) {
             documentReady()
         } else if (pdf.locked) {
@@ -117,6 +130,30 @@ LingmoUI.Window {
             filePath = ""
             pdf.close()
         }
+    }
+
+    Connections {
+        target: pdf
+        property bool wasConverting: false
+        function onStatusChanged() {
+            if (pdf.converting) {
+                wasConverting = true
+            } else if (wasConverting) {
+                wasConverting = false
+                if (rootWindow.filePath.length > 0 && pdf.path === rootWindow.filePath)
+                    rootWindow.loadFinished()
+            }
+        }
+    }
+
+    // Supported files among dropped URLs (the first one is opened)
+    function firstSupported(urls) {
+        for (let i = 0; i < urls.length; ++i) {
+            const p = reader.toLocalPath(urls[i])
+            if (p.length > 0 && reader.isSupported(p))
+                return p
+        }
+        return ""
     }
 
     function closeDocument() {
@@ -147,6 +184,11 @@ LingmoUI.Window {
         Qt.callLater(documentView.goToPage, Math.min(page, pdf.pageCount - 1))
         if (last > 0 && page === last)
             infoText = qsTr("Continuing from page %1.").arg(page + 1)
+        if (initialListen && !listenStarted) {
+            listenStarted = true
+            readAloud.learning = initialLearning
+            Qt.callLater(readAloud.start, Math.min(page, pdf.pageCount - 1))
+        }
     }
 
     function saveProgress() {
@@ -205,6 +247,15 @@ LingmoUI.Window {
             noteDialog.edit(id)
     }
 
+    function toggleListen() {
+        if (!hasDocument)
+            return
+        if (readAloud.active)
+            readAloud.stop()
+        else
+            readAloud.start(documentView.currentPage)
+    }
+
     function askAssistant() {
         if (hasDocument && reader.askAssistant(qsTr("Summarize the document %1").arg(filePath)))
             infoText = qsTr("Lingmo Assistant is reading the document.")
@@ -245,8 +296,11 @@ LingmoUI.Window {
     Component.onCompleted: {
         documentView.zoomMode = settings.zoomMode
         documentView.readingMode = settings.readingMode
-        if (initialFile.length > 0)
+        if (initialFile.length > 0) {
             openFile(initialFile, initialPage >= 0 ? initialPage : undefined)
+            // opened from another app (Voice Studio, the file manager): come to the front
+            Qt.callLater(() => { rootWindow.raise(); rootWindow.requestActivate() })
+        }
         reader.refreshAssistant()
     }
 
@@ -389,6 +443,16 @@ LingmoUI.Window {
                         HoverHandler { id: layoutHover }
                     }
 
+                    // "Ouvir": read the document aloud
+                    LingmoUI.ActionButton {
+                        id: listenButton
+                        text: readAloud.active ? qsTr("Stop") : qsTr("Listen")
+                        iconName: readAloud.active ? "media-playback-stop" : "audio-volume-high"
+                        tipText: qsTr("Read aloud from this page (Ctrl+Shift+L)")
+                        primary: readAloud.active
+                        onClicked: rootWindow.toggleListen()
+                    }
+
                     LingmoUI.IconButton {
                         iconName: "edit-find"
                         tipText: qsTr("Search (Ctrl+F)")
@@ -433,6 +497,39 @@ LingmoUI.Window {
                     }
 
                     Item {
+                        // EPUB, DOCX, ODT, text being typeset (first open; then it comes from the cache)
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            width: Math.min(parent.width - LingmoUI.Units.largeSpacing * 4, 360)
+                            visible: pdf.converting
+                            spacing: LingmoUI.Units.largeSpacing
+
+                            BusyIndicator {
+                                Layout.alignment: Qt.AlignHCenter
+                                running: pdf.converting
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                font.pointSize: LingmoUI.Units.fontSubheading
+                                text: qsTr("Preparing “%1”…").arg(reader.fileName(rootWindow.filePath))
+                            }
+                            ProgressBar {
+                                Layout.fillWidth: true
+                                from: 0; to: 1
+                                value: pdf.progress
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                color: LingmoUI.Theme.secondaryTextColor
+                                font.pointSize: LingmoUI.Units.fontCaption
+                                wrapMode: Text.Wrap
+                                text: qsTr("Typesetting the pages, only the first time: %1%").arg(Math.round(pdf.progress * 100))
+                            }
+                        }
+
                         DocumentView {
                             id: documentView
                             anchors.fill: parent
@@ -467,7 +564,7 @@ LingmoUI.Window {
                             id: pagePill
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.bottom: parent.bottom
-                            anchors.bottomMargin: LingmoUI.Units.largeSpacing * 2
+                            anchors.bottomMargin: LingmoUI.Units.largeSpacing * 2 + (readAloudBar.visible ? readAloudBar.height + LingmoUI.Units.largeSpacing : 0)
                             width: pillLabel.implicitWidth + LingmoUI.Units.largeSpacing * 2
                             height: pillLabel.implicitHeight + LingmoUI.Units.smallSpacing * 2
                             radius: height / 2
@@ -541,11 +638,83 @@ LingmoUI.Window {
                     }
                 }
 
+                // "Ouvir": the player over the pages
+                ReadAloudBar {
+                    id: readAloudBar
+                    visible: rootWindow.hasDocument && readAloud.active
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: LingmoUI.Units.largeSpacing
+                    width: Math.min(parent.width - LingmoUI.Units.largeSpacing * 2, 980)
+                    onExportRequested: exportDialog.openFor()
+                    onCloseRequested: readAloud.stop()
+                }
+
+                // A word's translation (learning mode)
+                Popup {
+                    id: wordPopup
+                    property var word: ({})
+                    width: Math.min(320, parent.width - 24)
+                    padding: LingmoUI.Units.largeSpacing
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    contentItem: ColumnLayout {
+                        spacing: LingmoUI.Units.smallSpacing
+                        Label {
+                            text: wordPopup.word.text || ""
+                            font.pointSize: LingmoUI.Units.fontSubheading
+                            font.bold: true
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: wordPopup.word.pending ? qsTr("Translating…")
+                                : wordPopup.word.error ? wordPopup.word.error
+                                : (wordPopup.word.translation || "")
+                            font.pointSize: LingmoUI.Units.fontBody
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: text.length > 0 && !wordPopup.word.pending
+                            wrapMode: Text.Wrap
+                            text: wordPopup.word.note || ""
+                            color: LingmoUI.Theme.secondaryTextColor
+                            font.pointSize: LingmoUI.Units.fontCaption
+                        }
+                        LingmoUI.ActionButton {
+                            text: qsTr("Read from here")
+                            iconName: "media-playback-start"
+                            onClicked: {
+                                readAloud.startAt(wordPopup.word.page, Qt.point(wordPopup.word.x + 1, wordPopup.word.y + 1))
+                                wordPopup.close()
+                            }
+                        }
+                    }
+                }
+                Connections {
+                    target: readAloud
+                    function onWordTranslated(result) {
+                        wordPopup.word = result
+                        const r = documentView.pageRectToView(result.page, Qt.rect(result.x, result.y, result.width, result.height))
+                        wordPopup.x = Math.max(8, Math.min(r.x, documentView.width - wordPopup.width - 8))
+                        wordPopup.y = r.y + r.height + 6 + wordPopup.implicitHeight > documentView.height - readAloudBar.height
+                                      ? Math.max(8, r.y - wordPopup.implicitHeight - 6) : r.y + r.height + 6
+                        if (!wordPopup.opened)
+                            wordPopup.open()
+                    }
+                    function onFollowRequested(page, rect) {
+                        // keep the line being read in the upper part of the view, above the player
+                        const r = documentView.pageRectToView(page, rect)
+                        const bottom = documentView.height - (readAloudBar.visible ? readAloudBar.height + LingmoUI.Units.largeSpacing * 2 : 0)
+                        if (r.y < LingmoUI.Units.largeSpacing || r.y + r.height > bottom - LingmoUI.Units.largeSpacing)
+                            documentView.showRect(page, rect)
+                    }
+                }
+
                 // Messages
                 ColumnLayout {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.bottom: parent.bottom
+                    anchors.bottom: readAloudBar.visible ? readAloudBar.top : parent.bottom
                     anchors.margins: LingmoUI.Units.largeSpacing * 2
                     spacing: LingmoUI.Units.smallSpacing
 
@@ -581,6 +750,20 @@ LingmoUI.Window {
                         text: rootWindow.errorText
                         onClosed: rootWindow.errorText = ""
                     }
+
+                    LingmoUI.Banner {
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 640
+                        Layout.alignment: Qt.AlignHCenter
+                        type: LingmoUI.Banner.Warning
+                        text: readAloud.error
+                        onClosed: readAloud.error = ""
+                        LingmoUI.ActionButton {
+                            visible: readAloud.errorCode === "install" || readAloud.errorCode === "vram"
+                            text: qsTr("Open Voice Studio")
+                            onClicked: reader.openVoiceStudio(readAloud.errorCode === "install" ? "install" : "")
+                        }
+                    }
                 }
 
                 Timer {
@@ -599,15 +782,21 @@ LingmoUI.Window {
         anchors.fill: parent
         property bool acceptable: false
         onEntered: (drag) => {
-            acceptable = drag.hasUrls && drag.urls.length > 0 && reader.isSupported(reader.toLocalPath(drag.urls[0]))
+            acceptable = drag.hasUrls && rootWindow.firstSupported(drag.urls).length > 0
             drag.accepted = acceptable
         }
         onExited: acceptable = false
         onDropped: (drop) => {
             acceptable = false
-            if (drop.hasUrls && drop.urls.length > 0) {
-                rootWindow.openFile(drop.urls[0])
-                drop.accept()
+            if (!drop.hasUrls || drop.urls.length === 0)
+                return
+            const path = rootWindow.firstSupported(drop.urls)
+            if (path.length > 0) {
+                rootWindow.openFile(path)
+                drop.accept(Qt.CopyAction)
+            } else {
+                rootWindow.errorText = qsTr("“%1” is not a document the Reader opens (PDF, EPUB, text, DOCX, ODT).")
+                                       .arg(reader.fileName(reader.toLocalPath(drop.urls[0])))
             }
         }
 
@@ -635,11 +824,17 @@ LingmoUI.Window {
         id: openDialog
         title: qsTr("Open document")
         fileMode: FileDialog.OpenFile
-        nameFilters: [qsTr("PDF documents (*.pdf *.PDF)"), qsTr("All files (*)")]
+        nameFilters: [qsTr("Documents (*.pdf *.PDF *.epub *.txt *.md *.docx *.odt)"), qsTr("PDF documents (*.pdf *.PDF)"),
+                      qsTr("Books (*.epub)"), qsTr("Text (*.txt *.md *.docx *.odt)"), qsTr("All files (*)")]
         currentFolder: rootWindow.filePath.length > 0
                        ? reader.toUrl(rootWindow.filePath.substring(0, rootWindow.filePath.lastIndexOf("/")))
                        : StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
         onAccepted: rootWindow.openFile(selectedFile)
+    }
+
+    ExportAudioDialog {
+        id: exportDialog
+        parent: Overlay.overlay
     }
 
     PasswordDialog {
@@ -732,6 +927,17 @@ LingmoUI.Window {
             onTriggered: documentView.notePlacement = true
         }
         MenuSeparator {}
+        MenuItem {
+            text: readAloud.active ? qsTr("Stop reading aloud") : qsTr("Listen")
+            enabled: rootWindow.hasDocument
+            onTriggered: rootWindow.toggleListen()
+        }
+        MenuItem {
+            text: qsTr("Export audio…") + "\tCtrl+Shift+E"
+            enabled: rootWindow.hasDocument
+            onTriggered: exportDialog.openFor()
+        }
+        MenuSeparator {}
         MenuItem { text: qsTr("Close document"); enabled: rootWindow.hasDocument; onTriggered: rootWindow.closeDocument() }
     }
 
@@ -775,6 +981,12 @@ LingmoUI.Window {
     // ------------------------------------------------------------ shortcuts
 
     Shortcut { sequence: "Ctrl+O"; onActivated: openDialog.open() }
+    Shortcut { sequence: "Ctrl+Shift+L"; enabled: rootWindow.hasDocument; onActivated: rootWindow.toggleListen() }
+    Shortcut { sequence: "Ctrl+Shift+E"; enabled: rootWindow.hasDocument; onActivated: exportDialog.openFor() }
+    Shortcut { sequence: "Space"; enabled: readAloud.active && !pageField.activeFocus && !searchField.activeFocus; onActivated: readAloud.togglePlay() }
+    Shortcut { sequence: "Escape"; enabled: readAloud.active && !rootWindow.searching; onActivated: readAloud.stop() }
+    Shortcut { sequence: "Alt+Right"; enabled: readAloud.active; onActivated: readAloud.nextSentence() }
+    Shortcut { sequence: "Alt+Left"; enabled: readAloud.active; onActivated: readAloud.previousSentence() }
     Shortcut { sequence: "Ctrl+P"; enabled: rootWindow.hasDocument; onActivated: rootWindow.printDocument() }
     Shortcut { sequence: "Ctrl+F"; enabled: rootWindow.hasDocument; onActivated: rootWindow.openSearch() }
     Shortcut { sequence: "F3"; enabled: rootWindow.searching; onActivated: rootWindow.findNext() }
@@ -807,5 +1019,33 @@ LingmoUI.Window {
             else
                 documentView.clearSelection()
         }
+    }
+
+    // Long conversions also show in the status bar's Island (optional: no bar, nothing happens)
+    // (only when it takes a while: a cached book opens at once)
+    Timer {
+        id: slowConversion
+        property bool slow: false
+        interval: 800
+        onTriggered: slow = pdf.converting
+    }
+    Connections {
+        target: pdf
+        function onStatusChanged() {
+            slowConversion.slow = false
+            if (pdf.converting)
+                slowConversion.restart()
+            else
+                slowConversion.stop()
+        }
+    }
+    LingmoUI.IslandActivity {
+        appId: "lingmo-reader"
+        active: pdf.converting && slowConversion.slow
+        kind: "generic"
+        title: qsTr("Preparing book")
+        subtitle: reader.fileName(rootWindow.filePath)
+        iconName: "lingmo-reader"
+        progress: pdf.progress
     }
 }

@@ -4,6 +4,7 @@
  */
 
 #include "reader.h"
+#include "bookconverter.h"
 #include "pdfdocument.h"
 
 #include <QClipboard>
@@ -72,7 +73,8 @@ bool Reader::isSupported(const QString &path) const
         return false;
     const QMimeType mime = QMimeDatabase().mimeTypeForFile(path);
     return mime.inherits(QStringLiteral("application/pdf"))
-        || path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive);
+        || path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive)
+        || BookConverter::needsConversion(path);
 }
 
 QString Reader::fileName(const QString &path) const
@@ -240,4 +242,12 @@ bool Reader::askAssistant(const QString &text) const
     }
     // Not running and no D-Bus activation file: the binary hands the question over itself
     return QProcess::startDetached(AssistantBinary, {QStringLiteral("--ask"), text});
+}
+
+bool Reader::openVoiceStudio(const QString &section) const
+{
+    QStringList args;
+    if (!section.isEmpty())
+        args << QStringLiteral("--section") << section;
+    return QProcess::startDetached(QStringLiteral("lingmo-voicestudio"), args);
 }

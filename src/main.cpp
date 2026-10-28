@@ -19,6 +19,7 @@
 #include "annotationstore.h"
 #include "pageimageprovider.h"
 #include "pdfdocument.h"
+#include "readaloud.h"
 #include "reader.h"
 #include "recentfiles.h"
 #include "searchmodel.h"
@@ -72,7 +73,13 @@ int main(int argc, char *argv[])
                                   QCoreApplication::translate("main", "Open at this page (1 is the first)"),
                                   QStringLiteral("number"));
     parser.addOption(pageOption);
-    parser.addPositionalArgument(QStringLiteral("file"), QCoreApplication::translate("main", "PDF file to open"));
+    // Voice Studio's "Aprender idiomas" opens documents here, read aloud in learning mode
+    QCommandLineOption learnOption(QStringLiteral("learn"),
+                                   QCoreApplication::translate("main", "Open in learning mode: read aloud sentence by sentence"));
+    parser.addOption(learnOption);
+    QCommandLineOption listenOption(QStringLiteral("listen"), QCoreApplication::translate("main", "Start reading aloud"));
+    parser.addOption(listenOption);
+    parser.addPositionalArgument(QStringLiteral("file"), QCoreApplication::translate("main", "Document to open (PDF, EPUB, TXT, DOCX, ODT)"));
     parser.process(app);
 
     applyIconTheme();
@@ -87,8 +94,10 @@ int main(int argc, char *argv[])
     const int initialPage = parser.isSet(pageOption) ? parser.value(pageOption).toInt() - 1 : -1;
 
     PdfDocument document;
+    document.setAsyncConversion(true);
     SearchModel search(&document);
     Reader reader(&document);
+    ReadAloud readAloud(&document);
     RecentFiles recentFiles;
     AnnotationStore annotations;
 
@@ -102,6 +111,9 @@ int main(int argc, char *argv[])
     ctx->setContextProperty(QStringLiteral("annotations"), &annotations);
     ctx->setContextProperty(QStringLiteral("initialFile"), initialFile);
     ctx->setContextProperty(QStringLiteral("initialPage"), initialPage);
+    ctx->setContextProperty(QStringLiteral("readAloud"), &readAloud);
+    ctx->setContextProperty(QStringLiteral("initialLearning"), parser.isSet(learnOption));
+    ctx->setContextProperty(QStringLiteral("initialListen"), parser.isSet(listenOption) || parser.isSet(learnOption));
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 1;

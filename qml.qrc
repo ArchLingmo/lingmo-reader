@@ -9,5 +9,7 @@
         <file>qml/PasswordDialog.qml</file>
         <file>qml/LinkDialog.qml</file>
         <file>qml/NoteDialog.qml</file>
+        <file>qml/ReadAloudBar.qml</file>
+        <file>qml/ExportAudioDialog.qml</file>
     </qresource>
 </RCC>

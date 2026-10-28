@@ -4,6 +4,11 @@
  */
 
 #include "pdfdocument.h"
+#include "bookconverter.h"
+
+#include <QCoreApplication>
+#include <QPointer>
+#include <QThreadPool>
 
 #include <QFileInfo>
 #include <QLineF>
@@ -150,6 +155,42 @@ int PdfDocument::load(const QString &path, const QString &password)
         return m_status;
     }
 
+    m_sourceFormat = QStringLiteral("pdf");
+    m_author.clear();
+    m_language.clear();
+    m_coverPath.clear();
+    m_convertedOutline.clear();
+    m_renderedPath = local;
+    if (BookConverter::needsConversion(local)) {
+        // EPUB, text, DOCX, ODT: typeset once into a cached PDF, shown with real pages
+        if (m_async) {
+            // in a worker: a long book doesn't freeze the window; progress meanwhile
+            const int generation = m_generation;
+            QPointer<PdfDocument> self(this);
+            m_progress = 0;
+            Q_EMIT progressChanged();
+            setStatus(Converting);
+            QThreadPool::globalInstance()->start([self, generation, local] {
+                auto report = [self, generation](qreal f) {
+                    QMetaObject::invokeMethod(qApp, [self, generation, f] {
+                        if (self && self->m_generation == generation && self->m_status == Converting) {
+                            self->m_progress = f;
+                            Q_EMIT self->progressChanged();
+                        }
+                    }, Qt::QueuedConnection);
+                };
+                const BookConverter::Result book = BookConverter::convert(local, QString(), report);
+                QMetaObject::invokeMethod(qApp, [self, generation, book] {
+                    if (self && self->m_generation == generation && self->m_status == Converting)
+                        self->finishConversion(book);
+                }, Qt::QueuedConnection);
+            });
+            return m_status;
+        }
+        finishConversion(BookConverter::convert(local));
+        return m_status;
+    }
+
     const QByteArray pw = password.toUtf8();
     std::unique_ptr<Poppler::Document> doc = Poppler::Document::load(local, pw, pw);
     if (!doc) {
@@ -163,6 +204,32 @@ int PdfDocument::load(const QString &path, const QString &password)
     }
     finishLoad(std::move(doc));
     return m_status;
+}
+
+void PdfDocument::finishConversion(const BookConverter::Result &book)
+{
+    {
+        if (!book.ok()) {
+            setStatus(Error, book.error.isEmpty() ? tr("it could not be converted") : book.error);
+            return;
+        }
+        m_sourceFormat = book.format;
+        m_author = book.author;
+        m_language = book.language;
+        m_coverPath = book.coverPath;
+        m_renderedPath = book.pdfPath;
+        m_convertedOutline = book.outline;
+        std::unique_ptr<Poppler::Document> doc = Poppler::Document::load(book.pdfPath);
+        if (!doc) {
+            setStatus(Error, tr("it could not be converted"));
+            return;
+        }
+        finishLoad(std::move(doc));
+        if (!book.title.isEmpty())
+            m_title = book.title;
+        if (m_status == Ready)
+            Q_EMIT statusChanged();
+    }
 }
 
 bool PdfDocument::unlock(const QString &password)
@@ -184,6 +251,11 @@ bool PdfDocument::unlock(const QString &password)
 
 void PdfDocument::close()
 {
+    m_sourceFormat.clear();
+    m_author.clear();
+    m_coverPath.clear();
+    m_renderedPath.clear();
+    m_convertedOutline.clear();
     setSnapshot(nullptr);
     m_pending.reset();
     m_outline.clear();
@@ -209,6 +281,8 @@ void PdfDocument::finishLoad(std::unique_ptr<Poppler::Document> doc)
         snap->pageSizes.append(p ? p->pageSizeF() : QSizeF(612, 792));
     }
     m_title = doc->title().trimmed();
+    if (m_author.isEmpty())
+        m_author = doc->author().trimmed();
     snap->document = std::move(doc);
     snap->generation = m_generation;
     setSnapshot(snap);
@@ -242,6 +316,10 @@ static void resolveDestination(Poppler::Document *doc, const QList<QSizeF> &size
 void PdfDocument::buildOutline()
 {
     m_outline.clear();
+    if (!m_convertedOutline.isEmpty()) {
+        m_outline = m_convertedOutline;
+        return;
+    }
     if (!m_snapshot)
         return;
     QMutexLocker lock(&m_snapshot->mutex);

@@ -88,6 +88,43 @@ Item {
         }
     }
 
+    // ---- read aloud ("Ouvir"): the sentence softly, the word being spoken strongly
+    readonly property bool readingHere: readAloud.active && readAloud.highlightEnabled
+    Shape {
+        id: readSentence
+        anchors.fill: parent
+        visible: pageRoot.readingHere
+        readonly property var polygons: {
+            readAloud.highlightRevision   // dependency
+            return pageRoot.readingHere ? readAloud.sentencePolygons(pageRoot.pageIndex) : []
+        }
+        ShapePath {
+            strokeWidth: -1
+            fillColor: Qt.rgba(LingmoUI.Theme.highlightColor.r, LingmoUI.Theme.highlightColor.g,
+                               LingmoUI.Theme.highlightColor.b, pageRoot.view.readingMode === 1 ? 0.24 : 0.14)
+            scale: Qt.size(pageRoot.pageScale, pageRoot.pageScale)
+            PathMultiline { paths: readSentence.polygons }
+        }
+    }
+    Shape {
+        id: readWord
+        anchors.fill: parent
+        visible: pageRoot.readingHere
+        readonly property var polygons: {
+            readAloud.highlightRevision
+            return pageRoot.readingHere ? readAloud.wordPolygons(pageRoot.pageIndex) : []
+        }
+        ShapePath {
+            strokeWidth: 1
+            strokeColor: Qt.rgba(LingmoUI.Theme.highlightColor.r, LingmoUI.Theme.highlightColor.g,
+                                 LingmoUI.Theme.highlightColor.b, 0.85)
+            fillColor: Qt.rgba(LingmoUI.Theme.highlightColor.r, LingmoUI.Theme.highlightColor.g,
+                               LingmoUI.Theme.highlightColor.b, pageRoot.view.readingMode === 1 ? 0.55 : 0.38)
+            scale: Qt.size(pageRoot.pageScale, pageRoot.pageScale)
+            PathMultiline { paths: readWord.polygons }
+        }
+    }
+
     // ---- highlights and notes from the sidecar
     readonly property var pageAnnotations: {
         pageRoot.view.annotationRevision   // dependency
@@ -168,6 +205,17 @@ Item {
                                                               Qt.point(eventPoint.position.x / s, eventPoint.position.y / s)))
                 return
             }
+            // while reading aloud: a click reads from that sentence (learning mode: translates the word)
+            if (readAloud.active && tapCount === 1 && !pageRoot.view.notePlacement) {
+                const pt = Qt.point(eventPoint.position.x / s, eventPoint.position.y / s)
+                selection.clear()
+                if (readAloud.learning)
+                    readAloud.translateWord(pageRoot.pageIndex, pt)
+                else
+                    readAloud.startAt(pageRoot.pageIndex, pt)
+                pageRoot.view.forceActiveFocus()
+                return
+            }
             selection.clear()
             if (pageRoot.view.notePlacement)
                 pageRoot.view.notePlaced(pageRoot.pageIndex,
@@ -185,7 +233,8 @@ Item {
         onLongPressed: pageRoot.view.pageContextMenu(pageRoot, point.position)
     }
     HoverHandler {
-        cursorShape: pageRoot.view.notePlacement ? Qt.CrossCursor : Qt.IBeamCursor
+        cursorShape: pageRoot.view.notePlacement ? Qt.CrossCursor
+                   : readAloud.active ? Qt.PointingHandCursor : Qt.IBeamCursor
     }
 
     // Text selection of this page: { text, geometry } from the Poppler text layer
